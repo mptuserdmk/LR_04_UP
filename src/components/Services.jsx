@@ -4,6 +4,7 @@ import { getServicesCategories } from '../api/services_categories';
 import { getСategories } from '../api/categories';
 import { getDiscounts } from '../api/discounts';
 import { getUsers } from '../api/users';
+import { getReviews, createReview } from '../api/reviews';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { NavLink, useSearchParams } from 'react-router-dom';
@@ -18,6 +19,7 @@ export default function Services() {
   const [serviceCategories, setServiceCategories] = useState([]);
   const [discounts, setDiscounts] = useState([]);
   const [masters, setMasters] = useState([]);
+  const [reviews, setReviews] = useState([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [maxPrice, setMaxPrice] = useState(10000);
@@ -25,6 +27,18 @@ export default function Services() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addMessage, setAddMessage] = useState(null);
+
+  // Reviews expansion state per service ID
+  const [expandedReviews, setExpandedReviews] = useState({});
+
+  // Quick Review Modal State
+  const [reviewService, setReviewService] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
+  const [reviewSuccess, setReviewSuccess] = useState(null);
+  const [reviewCooldown, setReviewCooldown] = useState(0);
 
   // Quick Time-Slot Booking Modal
   const [quickBookService, setQuickBookService] = useState(null);
@@ -44,18 +58,21 @@ export default function Services() {
     try {
       setLoading(true);
       setError(null);
-      const [servicesData, categoriesData, linksData, discountsData, usersData] = await Promise.all([
+      const [servicesData, categoriesData, linksData, discountsData, usersData, reviewsData] = await Promise.all([
         getServices(),
         getСategories(),
         getServicesCategories(),
         getDiscounts(),
         getUsers(),
+        getReviews(),
       ]);
 
       setServices(servicesData);
       setCategories(categoriesData);
       setServiceCategories(linksData);
       setDiscounts(discountsData);
+      setReviews(reviewsData);
+
       const staffMasters = usersData.filter((u) => u.role_id === 3 || u.role_title === 'Мастер');
       setMasters(staffMasters);
       if (staffMasters.length > 0) {
@@ -79,6 +96,15 @@ export default function Services() {
       setSelectedCategoryIds([Number(catParam)]);
     }
   }, [searchParams]);
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    if (reviewCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setReviewCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [reviewCooldown]);
 
   const userDiscount = useMemo(() => {
     if (!user || !user.discount_id) return null;
@@ -116,6 +142,96 @@ export default function Services() {
     setSelectedCategoryIds((prev) =>
       prev.includes(categoryId) ? prev.filter((id) => id !== categoryId) : [...prev, categoryId]
     );
+  };
+
+  // Map reviews by service_id
+  const reviewsByService = useMemo(() => {
+    const map = {};
+    for (const r of reviews) {
+      if (r.service_id) {
+        if (!map[r.service_id]) map[r.service_id] = [];
+        map[r.service_id].push(r);
+      }
+    }
+    return map;
+  }, [reviews]);
+
+  const getServiceStats = (serviceId) => {
+    const servReviews = reviewsByService[serviceId] || [];
+    if (servReviews.length === 0) {
+      return { count: 0, avg: null };
+    }
+    const sum = servReviews.reduce((acc, r) => acc + (r.rating || 5), 0);
+    return { count: servReviews.length, avg: (sum / servReviews.length).toFixed(1) };
+  };
+
+  const toggleReviewsExpand = (serviceId) => {
+    setExpandedReviews((prev) => ({
+      ...prev,
+      [serviceId]: !prev[serviceId],
+    }));
+  };
+
+  const openReviewModal = (service) => {
+    setReviewService(service);
+    setReviewRating(5);
+    setReviewComment('');
+    setReviewError(null);
+    setReviewSuccess(null);
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) {
+      setReviewError('Для публикации отзыва необходимо авторизоваться');
+      return;
+    }
+    if (!reviewComment.trim()) {
+      setReviewError('Пожалуйста, напишите текст отзыва');
+      return;
+    }
+
+    setReviewSubmitting(true);
+    setReviewError(null);
+    setReviewSuccess(null);
+
+    try {
+      await createReview({
+        user_id: user.id_user,
+        service_id: reviewService.id_service,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+      });
+      setReviewSuccess('Спасибо! Ваш отзыв опубликован.');
+      setReviewComment('');
+      setReviewCooldown(180);
+
+      // Auto expand reviews for this service so user immediately sees their review
+      setExpandedReviews((prev) => ({
+        ...prev,
+        [reviewService.id_service]: true,
+      }));
+
+      // Reload reviews
+      const updatedReviews = await getReviews();
+      setReviews(updatedReviews);
+
+      setTimeout(() => {
+        setReviewService(null);
+        setReviewSuccess(null);
+      }, 1500);
+    } catch (err) {
+      if (err.message && err.message.includes('Подождите')) {
+        const match = err.message.match(/(\d+)\s*сек/);
+        const secs = match ? parseInt(match[1], 10) : 180;
+        setReviewCooldown(secs);
+        setReviewError(`Антиспам-защита: повторный отзыв возможен через ${secs} сек.`);
+      } else {
+        setReviewError(err.message || 'Ошибка сохранения отзыва');
+      }
+    } finally {
+      setReviewSubmitting(false);
+    }
   };
 
   const filteredServices = useMemo(() => {
@@ -167,9 +283,14 @@ export default function Services() {
       if (sortBy === 'duration') {
         return (a.duration || 30) - (b.duration || 30);
       }
+      if (sortBy === 'rating') {
+        const ratingA = parseFloat(getServiceStats(a.id_service).avg) || 0;
+        const ratingB = parseFloat(getServiceStats(b.id_service).avg) || 0;
+        return ratingB - ratingA;
+      }
       return 0;
     });
-  }, [services, selectedCategoryIds, searchQuery, maxPrice, sortBy, serviceCategories, categories, discounts, userDiscount]);
+  }, [services, selectedCategoryIds, searchQuery, maxPrice, sortBy, serviceCategories, categories, discounts, userDiscount, reviewsByService]);
 
   const handleAddToCart = async (service) => {
     try {
@@ -257,14 +378,20 @@ export default function Services() {
         <div>
           <h1 className="page-title">Каталог услуг</h1>
           <p className="page-subtitle">
-            Профессиональные услуги салона с прозрачными ценами и онлайн-записью
+            Профессиональные услуги салона с прозрачными ценами, отзывами гостей и онлайн-записью
           </p>
         </div>
-        {userDiscount && (
-          <div className="badge badge-success" style={{ padding: '0.4rem 0.8rem' }}>
-            Персональная скидка: {userDiscount.percentage}%
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <NavLink to="/reviews" className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span>★ Все отзывы салона</span>
+            <span className="badge badge-primary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}>{reviews.length}</span>
+          </NavLink>
+          {userDiscount && (
+            <div className="badge badge-success" style={{ padding: '0.4rem 0.8rem' }}>
+              Персональная скидка: {userDiscount.percentage}%
+            </div>
+          )}
+        </div>
       </div>
 
       {addMessage && (
@@ -287,6 +414,7 @@ export default function Services() {
         <div>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             <option value="popular">По умолчанию</option>
+            <option value="rating">По рейтингу (высокий)</option>
             <option value="price-asc">Сначала недорогие</option>
             <option value="price-desc">Сначала премиум</option>
             <option value="duration">По времени (быстрые)</option>
@@ -355,6 +483,9 @@ export default function Services() {
               userDiscount
             );
             const serviceCats = getServiceCategories(service);
+            const stats = getServiceStats(service.id_service);
+            const servReviewsList = reviewsByService[service.id_service] || [];
+            const isExpanded = !!expandedReviews[service.id_service];
 
             return (
               <div key={service.id_service} className="service-card">
@@ -388,6 +519,34 @@ export default function Services() {
                     )}
                   </div>
 
+                  {/* Service Rating Summary */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0.35rem 0 0.5rem', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{ color: 'var(--accent-silver)', fontWeight: '700' }}>
+                        {stats.avg ? `★ ${stats.avg}` : '★ 5.0'}
+                      </span>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>
+                        {stats.count > 0 ? `(${stats.count} ${stats.count === 1 ? 'отзыв' : stats.count < 5 ? 'отзыва' : 'отзывов'})` : '(нет отзывов)'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleReviewsExpand(service.id_service)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: isExpanded ? 'var(--text-main)' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontSize: '0.75rem',
+                        textDecoration: 'underline',
+                        padding: '0.1rem 0.3rem',
+                      }}
+                    >
+                      {isExpanded ? 'Скрыть отзывы ▲' : `Отзывы (${stats.count}) ▼`}
+                    </button>
+                  </div>
+
                   <p className="service-card-desc">{service.description || 'Профессиональная услуга мастеров салона.'}</p>
 
                   <div className="service-card-meta">
@@ -402,6 +561,7 @@ export default function Services() {
                     <span className="service-duration">{service.duration || 30} мин.</span>
                   </div>
 
+                  {/* Primary Card Actions */}
                   <div className="service-card-actions">
                     <button
                       type="button"
@@ -421,10 +581,209 @@ export default function Services() {
                       Записаться
                     </button>
                   </div>
+
+                  {/* Secondary Reviews Quick Action */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border-subtle)' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem 0.5rem' }}
+                      onClick={() => openReviewModal(service)}
+                    >
+                      ✍ Оставить отзыв
+                    </button>
+                    <NavLink
+                      to={`/reviews?serviceId=${service.id_service}`}
+                      className="btn btn-sm"
+                      style={{
+                        background: 'var(--bg-input)',
+                        color: 'var(--text-muted)',
+                        border: '1px solid var(--border-subtle)',
+                        fontSize: '0.75rem',
+                        padding: '0.35rem 0.5rem',
+                        textDecoration: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      Все отзывы
+                    </NavLink>
+                  </div>
+
+                  {/* Expandable Service Reviews Section */}
+                  {isExpanded && (
+                    <div className="service-card-reviews-panel" style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-strong)', background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-main)' }}>
+                          Отзывы к услуге ({servReviewsList.length})
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                          onClick={() => openReviewModal(service)}
+                        >
+                          + Написать
+                        </button>
+                      </div>
+
+                      {servReviewsList.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '0.75rem 0.25rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                          Пока нет отзывов к этой услуге.
+                          <div style={{ marginTop: '0.35rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
+                              onClick={() => openReviewModal(service)}
+                            >
+                              Будьте первым!
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                          {servReviewsList.map((rev) => (
+                            <div
+                              key={rev.id_review}
+                              style={{
+                                background: 'var(--bg-surface)',
+                                border: '1px solid var(--border-subtle)',
+                                borderRadius: '4px',
+                                padding: '0.5rem 0.6rem',
+                                fontSize: '0.75rem',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                                <strong style={{ color: 'var(--text-main)' }}>
+                                  {rev.first_name ? `${rev.first_name} ${rev.second_name || ''}` : rev.author_name || 'Клиент'}
+                                </strong>
+                                <span style={{ color: 'var(--accent-silver)', fontWeight: '700' }}>
+                                  {'★'.repeat(rev.rating)}
+                                </span>
+                              </div>
+                              <p style={{ color: 'var(--text-muted)', margin: '0 0 0.2rem', lineHeight: '1.3' }}>
+                                {rev.comment}
+                              </p>
+                              <span style={{ color: 'var(--text-dim)', fontSize: '0.65rem' }}>
+                                {rev.created_at ? new Date(rev.created_at).toLocaleDateString('ru-RU') : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Leave Review Modal */}
+      {reviewService && (
+        <div className="modal-backdrop">
+          <div className="modal-box">
+            <div className="modal-header">
+              <h3 className="modal-title">Отзыв об услуге</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setReviewService(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {reviewSuccess ? (
+              <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                <div className="badge badge-success" style={{ marginBottom: '0.75rem', display: 'inline-block' }}>Успешно</div>
+                <h4 style={{ color: 'var(--text-main)', marginBottom: '0.5rem' }}>{reviewService.title}</h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{reviewSuccess}</p>
+              </div>
+            ) : (
+              <form onSubmit={handleReviewSubmit}>
+                <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Выбранная услуга
+                  </div>
+                  <div style={{ fontWeight: '600', color: 'var(--text-main)', fontSize: '1rem', marginTop: '0.2rem' }}>
+                    {reviewService.title}
+                  </div>
+                </div>
+
+                {reviewError && (
+                  <div className="badge badge-danger" style={{ display: 'block', marginBottom: '0.75rem', padding: '0.4rem' }}>
+                    {reviewError}
+                  </div>
+                )}
+
+                {reviewCooldown > 0 && (
+                  <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '0.5rem', borderRadius: '4px', marginBottom: '0.75rem', fontSize: '0.75rem', color: 'var(--accent-warning)' }}>
+                    Повторный отзыв возможен через: <strong>{reviewCooldown} сек.</strong>
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label">Ваша оценка</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        style={{
+                          flex: 1,
+                          background: reviewRating >= star ? 'var(--accent-silver)' : 'var(--bg-input)',
+                          color: reviewRating >= star ? '#0c0e12' : 'var(--text-muted)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: '4px',
+                          padding: '0.4rem 0.2rem',
+                          cursor: 'pointer',
+                          fontSize: '0.9rem',
+                          fontWeight: '700',
+                          textAlign: 'center',
+                        }}
+                        onClick={() => setReviewRating(star)}
+                      >
+                        ★ {star}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Текст отзыва</label>
+                  <textarea
+                    rows={4}
+                    placeholder={`Поделитесь впечатлением от услуги «${reviewService.title}»...`}
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem' }}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={reviewSubmitting || reviewCooldown > 0}
+                  >
+                    {reviewSubmitting ? 'Отправка...' : 'Опубликовать отзыв'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setReviewService(null)}
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

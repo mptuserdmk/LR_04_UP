@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getReviews, createReview, updateReview, deleteReview } from '../api/reviews';
 import { getServices } from '../api/services';
 import { useAuth } from '../context/AuthContext';
 
 export default function Reviews() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [reviews, setReviews] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +21,7 @@ export default function Reviews() {
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [editingReviewId, setEditingReviewId] = useState(null);
   const [filterRating, setFilterRating] = useState('all');
+  const [filterServiceId, setFilterServiceId] = useState('all');
 
   const loadAll = async () => {
     try {
@@ -37,6 +40,15 @@ export default function Reviews() {
   useEffect(() => {
     loadAll();
   }, []);
+
+  // Handle URL query param for service preselection
+  useEffect(() => {
+    const sId = searchParams.get('serviceId');
+    if (sId) {
+      setSelectedServiceId(sId);
+      setFilterServiceId(sId);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (cooldownRemaining <= 0) return;
@@ -128,15 +140,23 @@ export default function Reviews() {
   };
 
   const filteredReviews = useMemo(() => {
-    if (filterRating === 'all') return reviews;
-    return reviews.filter((r) => String(r.rating) === String(filterRating));
-  }, [reviews, filterRating]);
+    return reviews.filter((r) => {
+      const matchRating = filterRating === 'all' || String(r.rating) === String(filterRating);
+      const matchService =
+        filterServiceId === 'all'
+          ? true
+          : filterServiceId === 'general'
+          ? !r.service_id
+          : String(r.service_id) === String(filterServiceId);
+      return matchRating && matchService;
+    });
+  }, [reviews, filterRating, filterServiceId]);
 
   const avgRating = useMemo(() => {
-    if (reviews.length === 0) return '5.0';
-    const sum = reviews.reduce((acc, r) => acc + (r.rating || 5), 0);
-    return (sum / reviews.length).toFixed(1);
-  }, [reviews]);
+    if (filteredReviews.length === 0) return reviews.length === 0 ? '5.0' : '-';
+    const sum = filteredReviews.reduce((acc, r) => acc + (r.rating || 5), 0);
+    return (sum / filteredReviews.length).toFixed(1);
+  }, [reviews, filteredReviews]);
 
   if (loading) {
     return (
@@ -155,25 +175,46 @@ export default function Reviews() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-main)' }}>★ {avgRating}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>({reviews.length} оценок)</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>({filteredReviews.length} из {reviews.length})</span>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1.5rem' }}>
         {/* Reviews List */}
         <div>
-          {/* Rating filter */}
-          <div className="admin-nav-bar" style={{ marginBottom: '1rem' }}>
-            {['all', '5', '4', '3', '2', '1'].map((val) => (
-              <button
-                key={val}
-                type="button"
-                className={`admin-nav-tab ${filterRating === val ? 'active' : ''}`}
-                onClick={() => setFilterRating(val)}
+          {/* Filters Bar: Rating & Service */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="admin-nav-bar" style={{ margin: 0, flexWrap: 'wrap' }}>
+              {['all', '5', '4', '3', '2', '1'].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  className={`admin-nav-tab ${filterRating === val ? 'active' : ''}`}
+                  onClick={() => setFilterRating(val)}
+                >
+                  {val === 'all' ? `Все оценки` : `★ ${val}`}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ minWidth: '200px' }}>
+              <select
+                value={filterServiceId}
+                onChange={(e) => setFilterServiceId(e.target.value)}
+                style={{ padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
               >
-                {val === 'all' ? `Все (${reviews.length})` : `★ ${val}`}
-              </button>
-            ))}
+                <option value="all">Все услуги и салон ({reviews.length})</option>
+                <option value="general">Общие отзывы о салоне</option>
+                {services.map((s) => {
+                  const count = reviews.filter((r) => String(r.service_id) === String(s.id_service)).length;
+                  return (
+                    <option key={s.id_service} value={s.id_service}>
+                      {s.title} {count > 0 ? `(${count})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </div>
 
           {filteredReviews.length === 0 ? (

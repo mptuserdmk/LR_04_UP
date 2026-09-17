@@ -477,9 +477,14 @@ async function initDB() {
   await pool.query(`
     INSERT INTO reviews (id_review, user_id, service_id, rating, comment, created_at) VALUES
       (1, 2, 1, 5, 'Отличная стрижка! Мастер Анна учла все пожелания и сделала идеальный фейд. Обязательно вернусь снова!', NOW() - interval '1 day'),
-      (2, 2, 4, 5, 'Прекрасный спа-уход и моделирование бороды. Распаривание полотенцем с маслами — это отдельный кайф!', NOW() - interval '3 days')
+      (2, 2, 4, 5, 'Прекрасный спа-уход и моделирование бороды. Распаривание полотенцем с маслами — это отдельный кайф!', NOW() - interval '3 days'),
+      (3, 1, 1, 5, 'Хожу на мужскую модельную стрижку регулярно. Сервис на высшем уровне, кофе отличный.', NOW() - interval '5 days'),
+      (4, 2, 2, 4, 'Удлиненная стрижка получилась аккуратной, текстура волос сохранена, спасибо мастеру!', NOW() - interval '6 days'),
+      (5, 1, 7, 5, 'Сложное окрашивание AirTouch выполнено безукоризненно! Плавный переход тона и блеск волос.', NOW() - interval '8 days'),
+      (6, 2, 10, 5, 'SPA-уход для волос восстановил структуру после лета, эффект заметен сразу же.', NOW() - interval '10 days'),
+      (7, 1, 22, 5, 'Полный VIP-комплекс — просто восторг. Два мастера работали синхронно, сэкономил кучу времени!', NOW() - interval '12 days')
     ON CONFLICT (id_review) DO NOTHING;
-    SELECT setval('reviews_id_review_seq', (SELECT COALESCE(MAX(id_review), 1) FROM reviews));
+    SELECT setval('reviews_id_review_seq', (SELECT COALESCE(MAX(id_review), 7) FROM reviews));
   `);
 
   console.log('Database initialized and seeded with 22+ services and full data!');
