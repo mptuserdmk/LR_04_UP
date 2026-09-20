@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 
 export default function Cart() {
   const { user } = useAuth();
-  const { cart, loading, error, updateQuantity, removeFromCart, clearCart, reloadCart } = useCart();
+  const { cart, loading, error, isOfflineCart, updateQuantity, removeFromCart, clearCart, reloadCart } = useCart();
   const [masters, setMasters] = useState([]);
   const [selectedMasterId, setSelectedMasterId] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -61,37 +61,24 @@ export default function Cart() {
           ? Math.round(basePrice * (1 - effectivePct / 100))
           : basePrice;
 
-        const itemBaseTotal = basePrice * qty;
-        const itemFinalTotal = discountedUnitPrice * qty;
-        const itemSavings = itemBaseTotal - itemFinalTotal;
-
         acc.totalQuantity += qty;
+        acc.rawTotal += basePrice * qty;
+        acc.finalTotal += discountedUnitPrice * qty;
         acc.totalDuration += duration * qty;
-        acc.baseTotal += itemBaseTotal;
-        acc.finalTotal += itemFinalTotal;
-        acc.totalSavings += itemSavings;
-
         return acc;
       },
-      { totalQuantity: 0, totalDuration: 0, baseTotal: 0, finalTotal: 0, totalSavings: 0 }
+      { totalQuantity: 0, rawTotal: 0, finalTotal: 0, totalDuration: 0 }
     );
   }, [cart, userDiscountPercentage]);
 
   const handleCheckout = async (e) => {
     e.preventDefault();
-    if (cart.length === 0) return;
     if (!user) {
-      setCheckoutError('Необходима авторизация для оформления заказа');
+      setCheckoutError('Для оформления заказа необходимо авторизоваться');
       return;
     }
-    if (!selectedMasterId) {
-      setCheckoutError('Пожалуйста, выберите специалиста');
-      return;
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (selectedDate < todayStr) {
-      setCheckoutError('Дата не может быть меньше текущей даты');
+    if (cart.length === 0) {
+      setCheckoutError('Корзина пуста');
       return;
     }
 
@@ -99,51 +86,72 @@ export default function Cart() {
     setCheckoutError(null);
 
     try {
-      const appDateTime = `${selectedDate}T${selectedSlot}:00`;
-
+      const appointmentDateTime = `${selectedDate}T${selectedSlot}:00`;
+      
       const appRes = await fetch('http://localhost:3001/api/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: user.id_user,
-          master_id: parseInt(selectedMasterId, 10),
-          appointment_date: appDateTime,
-          note: note || `Заказ из корзины (${summary.totalQuantity} услуг)`,
-          address: address.trim() || 'Салон (по умолчанию)',
+          master_id: selectedMasterId ? Number(selectedMasterId) : null,
+          appointment_date: appointmentDateTime,
+          note: `${note ? note + ' | ' : ''}Адрес: ${address}`,
           is_completed: false,
         }),
       });
 
-      if (!appRes.ok) throw new Error('Ошибка при оформлении заказа');
-      const newApp = await appRes.json();
+      if (!appRes.ok) {
+        const errData = await appRes.json();
+        throw new Error(errData.error || 'Ошибка при создании записи');
+      }
+
+      const newAppointment = await appRes.json();
+      const appointmentId = newAppointment.id_appointment;
 
       for (const item of cart) {
-        await fetch('http://localhost:3001/api/appointments_services', {
+        await fetch('http://localhost:3001/api/appointments-services', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            appointment_id: newApp.id_appointment,
+            appointment_id: appointmentId,
             service_id: item.service_id,
-            quantity: parseInt(item.quantity, 10) || 1,
+            quantity: item.quantity,
           }),
         });
       }
 
+      try {
+        await fetch('http://localhost:3001/api/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appointment_id: appointmentId,
+            amount: summary.finalTotal,
+            payment_date: new Date().toISOString(),
+          }),
+        });
+      } catch (payErr) {
+        console.warn('Payment record notice:', payErr);
+      }
+
       const chosenMaster = masters.find((m) => String(m.id_user) === String(selectedMasterId));
+      const masterName = chosenMaster
+        ? `${chosenMaster.first_name} ${chosenMaster.second_name || ''}`
+        : 'Любой свободный специалист';
+
       setCheckoutSuccess({
-        id: newApp.id_appointment,
+        appointmentId,
         date: selectedDate,
         time: selectedSlot,
-        address: address.trim() || 'Салон (по умолчанию)',
-        masterName: chosenMaster ? `${chosenMaster.first_name} ${chosenMaster.second_name || ''}` : 'Мастер',
+        masterName,
+        address: address || 'Салон (по умолчанию)',
         total: summary.finalTotal,
         totalDuration: summary.totalDuration,
-        count: summary.totalQuantity,
       });
 
       await clearCart();
     } catch (err) {
-      setCheckoutError(err.message || 'Произошла ошибка при оформлении заказа');
+      setCheckoutError(err.message || 'Ошибка при оформлении записи');
     } finally {
       setSubmitting(false);
     }
@@ -151,7 +159,7 @@ export default function Cart() {
 
   if (loading) {
     return (
-      <div className="page-container" style={{ textAlign: 'center', paddingTop: '4rem' }}>
+      <div className="page-container" style={{ textAlign: 'center', paddingTop: '40px' }}>
         <p style={{ color: 'var(--text-muted)' }}>Загрузка корзины...</p>
       </div>
     );
@@ -160,19 +168,47 @@ export default function Cart() {
   if (checkoutSuccess) {
     return (
       <div className="page-container">
-        <div style={{ maxWidth: '600px', margin: '0 auto', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '2rem', textAlign: 'center' }}>
-          <div className="badge badge-success" style={{ marginBottom: '1rem', display: 'inline-block' }}>Заказ успешно оформлен</div>
-          <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Вы записаны на визит</h2>
-          <div style={{ textAlign: 'left', background: 'var(--bg-surface-elevated)', padding: '1rem', borderRadius: '4px', marginBottom: '1.5rem', fontSize: '0.85rem' }}>
-            <p style={{ marginBottom: '0.4rem' }}>Дата и время: <strong>{checkoutSuccess.date}, {checkoutSuccess.time}</strong></p>
-            <p style={{ marginBottom: '0.4rem' }}>Мастер: <strong>{checkoutSuccess.masterName}</strong></p>
-            <p style={{ marginBottom: '0.4rem' }}>Адрес: <strong>{checkoutSuccess.address}</strong></p>
-            <p style={{ marginBottom: '0.4rem' }}>Общая длительность: <strong>{checkoutSuccess.totalDuration} мин.</strong></p>
+        <div style={{ maxWidth: '600px', margin: '0 auto', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '24px', textAlign: 'center' }}>
+          <div className="badge badge-success" style={{ marginBottom: '12px', display: 'inline-block' }}>Заказ успешно оформлен</div>
+          <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '12px', color: 'var(--text-h)' }}>Вы записаны на визит</h2>
+          <div style={{ textAlign: 'left', background: 'var(--bg-subtle)', border: '1px solid var(--border)', padding: '14px', borderRadius: '4px', marginBottom: '20px', fontSize: '13px' }}>
+            <p style={{ marginBottom: '6px' }}>Дата и время: <strong>{checkoutSuccess.date}, {checkoutSuccess.time}</strong></p>
+            <p style={{ marginBottom: '6px' }}>Мастер: <strong>{checkoutSuccess.masterName}</strong></p>
+            <p style={{ marginBottom: '6px' }}>Адрес: <strong>{checkoutSuccess.address}</strong></p>
+            <p style={{ marginBottom: '6px' }}>Общая длительность: <strong>{checkoutSuccess.totalDuration} мин.</strong></p>
             <p style={{ marginBottom: '0' }}>Итоговая сумма: <strong>{checkoutSuccess.total.toLocaleString()} ₽</strong></p>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
             <Link to="/profile" className="btn btn-primary">
               История заказов в кабинете
+            </Link>
+            <Link to="/available-services" className="btn btn-secondary">
+              В каталог
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isMainAdmin = user && (user.role_id === 1 || user.role_title === 'Главный администратор' || user.role_title === 'Администратор');
+
+  if (isMainAdmin) {
+    return (
+      <div className="page-container">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">Корзина недоступна</h1>
+            <p className="page-subtitle">Администраторам недоступна функция корзины и клиентской записи на услуги</p>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', padding: '40px 16px', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>
+            Для управления записями, услугами и другими данными перейдите в панель управления.
+          </p>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+            <Link to="/appointments" className="btn btn-primary">
+              Панель управления
             </Link>
             <Link to="/available-services" className="btn btn-secondary">
               В каталог
@@ -197,21 +233,44 @@ export default function Cart() {
         )}
       </div>
 
+      {isOfflineCart && (
+        <div
+          style={{
+            background: 'var(--warning-bg)',
+            border: '1px solid rgba(251, 191, 36, 0.4)',
+            color: 'var(--warning)',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.9rem',
+            fontWeight: 500,
+          }}
+        >
+          <span>⚠️</span>
+          <span>
+            Бэкенд временно недоступен. Ваши позиции сохранены локально на устройстве и не будут утеряны.
+          </span>
+        </div>
+      )}
+
       {checkoutError && (
-        <div className="badge badge-danger" style={{ display: 'block', marginBottom: '1rem', padding: '0.5rem' }}>
+        <div className="badge badge-danger" style={{ display: 'block', marginBottom: '12px', padding: '8px' }}>
           {checkoutError}
         </div>
       )}
 
       {cart.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '4rem 1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Ваша корзина пуста</p>
+        <div style={{ textAlign: 'center', padding: '40px 16px', background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Ваша корзина пуста</p>
           <Link to="/available-services" className="btn btn-primary">
             Выбрать услуги в каталоге
           </Link>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '20px' }}>
           {/* Items List */}
           <div className="table-wrapper">
             <table className="minimal-table">
@@ -238,16 +297,16 @@ export default function Cart() {
                     <tr key={serviceId}>
                       <td>
                         <strong>{item.title || item.service_title}</strong>
-                        {effectivePct > 0 && <span className="badge badge-warning" style={{ marginLeft: '0.5rem' }}>-{effectivePct}%</span>}
+                        {effectivePct > 0 && <span className="badge badge-warning" style={{ marginLeft: '8px' }}>-{effectivePct}%</span>}
                       </td>
                       <td>{item.duration || 30} мин.</td>
                       <td>{finalUnitPrice} ₽</td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            style={{ padding: '0.1rem 0.4rem', minWidth: '24px' }}
+                            style={{ padding: '2px 6px', minWidth: '24px' }}
                             onClick={() => updateQuantity(serviceId, item.quantity - 1)}
                           >
                             -
@@ -256,7 +315,7 @@ export default function Cart() {
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            style={{ padding: '0.1rem 0.4rem', minWidth: '24px' }}
+                            style={{ padding: '2px 6px', minWidth: '24px' }}
                             onClick={() => updateQuantity(serviceId, item.quantity + 1)}
                           >
                             +
@@ -268,7 +327,7 @@ export default function Cart() {
                         <button
                           type="button"
                           className="btn btn-danger btn-sm"
-                          style={{ padding: '0.2rem 0.4rem' }}
+                          style={{ padding: '2px 6px' }}
                           onClick={() => removeFromCart(serviceId)}
                         >
                           ✕
@@ -282,8 +341,8 @@ export default function Cart() {
           </div>
 
           {/* Booking Side Form */}
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-h)', marginBottom: '14px', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
               Параметры визита
             </h3>
 
@@ -331,7 +390,7 @@ export default function Cart() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Адрес доставки / выезда</label>
+                <label className="form-label">Адрес</label>
                 <input
                   type="text"
                   placeholder="г. Москва, ул. Ленина, д. 10 или 'Салон'"
@@ -351,16 +410,16 @@ export default function Cart() {
                 />
               </div>
 
-              <div style={{ background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: '4px', margin: '1rem 0', fontSize: '0.85rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', padding: '12px', borderRadius: '4px', margin: '14px 0', fontSize: '13px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Услуг в заказе:</span>
                   <span>{summary.totalQuantity} шт.</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Длительность:</span>
                   <span>{summary.totalDuration} мин.</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '15px', color: 'var(--text-h)', borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px' }}>
                   <span>К оплате:</span>
                   <span>{summary.finalTotal.toLocaleString()} ₽</span>
                 </div>

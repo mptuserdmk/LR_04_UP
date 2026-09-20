@@ -4,6 +4,7 @@ import { getAppointments } from '../api/appointments';
 import { getServices } from '../api/services';
 import { getUsers } from '../api/users';
 import AdminNavTabs from './AdminNavTabs';
+import Pagination from './Pagination';
 
 export default function AppointmentsServicesList() {
   const [links, setLinks] = useState([]);
@@ -12,6 +13,8 @@ export default function AppointmentsServicesList() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [formData, setFormData] = useState({
     appointment_id: '',
@@ -119,9 +122,21 @@ export default function AppointmentsServicesList() {
     <div className="admin-content-card">
       <AdminNavTabs activeSection="appointments-services" />
 
-      <div className="admin-header-row">
-        <h2>Услуги в записях клиентов</h2>
-        <span className="count-tag">Всего позиций: {links.length}</span>
+      <div className="admin-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <div>
+          <h2>Услуги в записях клиентов</h2>
+          <span className="count-tag">Всего позиций: {links.length}</span>
+        </div>
+        <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Сумма итого по всем позициям:</span>
+          <strong style={{ fontSize: '18px', color: 'var(--accent)' }}>
+            {links.reduce((sum, it) => {
+              const servObj = services.find((s) => String(s.id_service) === String(it.service_id));
+              const unitPrice = parseFloat(it.price || servObj?.price || 0);
+              return sum + unitPrice * (parseInt(it.quantity, 10) || 1);
+            }, 0).toLocaleString()} ₽
+          </strong>
+        </div>
       </div>
 
       {error && <div className="alert-error">{error}</div>}
@@ -150,9 +165,11 @@ export default function AppointmentsServicesList() {
                       minute: '2-digit',
                     })
                   : '—';
+                const clientName = client ? `${client.second_name} ${client.first_name}` : a.client_email || 'Клиент';
+                const statusSuffix = a.is_paid ? ' (Оплачен)' : a.is_completed ? ' (Завершен)' : '';
                 return (
-                  <option key={a.id_appointment} value={a.id_appointment}>
-                    Запись: {client ? `${client.second_name} ${client.first_name}` : a.client_email || 'Клиент'} ({dateStr})
+                  <option key={a.id_appointment} value={a.id_appointment} disabled={a.is_paid && !editKeys}>
+                    {clientName} • {dateStr}{statusSuffix}
                   </option>
                 );
               })}
@@ -217,16 +234,20 @@ export default function AppointmentsServicesList() {
                 <th>Стоимость за ед.</th>
                 <th>Кол-во</th>
                 <th>Итого</th>
+                <th>Статус</th>
                 <th>Действия</th>
               </tr>
             </thead>
             <tbody>
-              {links.map((it, index) => {
+              {links
+                .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+                .map((it, index) => {
                 const appObj = appointments.find((a) => String(a.id_appointment) === String(it.appointment_id));
                 const clientObj = users.find((u) => String(u.id_user) === String(appObj?.user_id));
                 const servObj = services.find((s) => String(s.id_service) === String(it.service_id));
                 const unitPrice = parseFloat(it.price || servObj?.price || 0);
                 const total = unitPrice * (parseInt(it.quantity, 10) || 1);
+                const isPaidOrCompleted = Boolean(it.is_paid || appObj?.is_paid || appObj?.is_completed);
 
                 const dateStr = appObj?.appointment_date
                   ? new Date(appObj.appointment_date).toLocaleDateString('ru-RU', {
@@ -237,48 +258,93 @@ export default function AppointmentsServicesList() {
                     })
                   : '—';
 
+                const clientFullName = it.client_first_name
+                  ? `${it.client_second_name || ''} ${it.client_first_name}`.trim()
+                  : clientObj
+                  ? `${clientObj.second_name} ${clientObj.first_name}`.trim()
+                  : 'Клиент';
+
                 return (
                   <tr key={`${it.appointment_id}-${it.service_id}`}>
-                    <td className="row-number-cell">{index + 1}</td>
-                    <td>
-                      <strong>
-                        {it.client_first_name
-                          ? `${it.client_second_name || ''} ${it.client_first_name}`
-                          : clientObj
-                          ? `${clientObj.second_name} ${clientObj.first_name}`
-                          : 'Клиент'}
-                      </strong>
-                      <small style={{ display: 'block', color: '#9ca3af' }}>{dateStr}</small>
+                    <td className="row-number-cell">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <strong>{clientFullName}</strong>
+                      <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontSize: '0.85em' }}>
+                        ({dateStr})
+                      </span>
                     </td>
-                    <td>{it.service_title || servObj?.title || 'Услуга'}</td>
-                    <td>{unitPrice.toLocaleString()} ₽</td>
+                    <td>
+                      <strong>{it.service_title || servObj?.title || 'Услуга'}</strong>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{unitPrice.toLocaleString()} ₽</td>
                     <td>
                       <span className="badge-duration">{it.quantity} шт.</span>
                     </td>
-                    <td>
-                      <strong>{total.toLocaleString()} ₽</strong>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <strong style={{ color: 'var(--text-h)' }}>{total.toLocaleString()} ₽</strong>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn-action-edit"
-                        onClick={() => handleEdit(it)}
-                      >
-                        Редактировать
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-action-delete"
-                        onClick={() => handleDelete(it.appointment_id, it.service_id)}
-                      >
-                        Удалить
-                      </button>
+                      {isPaidOrCompleted ? (
+                        <span className="badge-status badge-status--completed" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          Оплачен
+                        </span>
+                      ) : (
+                        <span className="badge-status badge-status--pending" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          Ожидает
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {isPaidOrCompleted ? (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                          Заблокировано
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-action-edit"
+                            onClick={() => handleEdit(it)}
+                          >
+                            Редактировать
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-action-delete"
+                            onClick={() => handleDelete(it.appointment_id, it.service_id)}
+                          >
+                            Удалить
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--bg-subtle)', fontWeight: 'bold' }}>
+                <td colSpan="5" style={{ textAlign: 'right', paddingRight: '16px' }}>
+                  Сумма итого:
+                </td>
+                <td style={{ color: 'var(--accent)', fontSize: '1.05rem', whiteSpace: 'nowrap' }}>
+                  {links.reduce((sum, it) => {
+                    const servObj = services.find((s) => String(s.id_service) === String(it.service_id));
+                    const unitPrice = parseFloat(it.price || servObj?.price || 0);
+                    return sum + unitPrice * (parseInt(it.quantity, 10) || 1);
+                  }, 0).toLocaleString()} ₽
+                </td>
+                <td colSpan="2"></td>
+              </tr>
+            </tfoot>
           </table>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={links.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
         </div>
       )}
     </div>

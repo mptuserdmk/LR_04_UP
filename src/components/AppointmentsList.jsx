@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { getAppointments, createAppointment, updateAppointment, deleteAppointment } from '../api/appointments';
 import { getUsers } from '../api/users';
 import AdminNavTabs from './AdminNavTabs';
+import Pagination from './Pagination';
 
 export default function AppointmentsList() {
   const [appointments, setAppointments] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [formData, setFormData] = useState({
     id_appointment: '',
@@ -236,7 +239,9 @@ export default function AppointmentsList() {
               </tr>
             </thead>
             <tbody>
-              {appointments.map((a, index) => {
+              {appointments
+                .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+                .map((a, index) => {
                 const clientObj = users.find((u) => String(u.id_user) === String(a.user_id));
                 const masterObj = users.find((u) => String(u.id_user) === String(a.master_id));
 
@@ -252,7 +257,7 @@ export default function AppointmentsList() {
 
                 return (
                   <tr key={a.id_appointment}>
-                    <td className="row-number-cell">{index + 1}</td>
+                    <td className="row-number-cell">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
                     <td>
                       <strong>
                         {a.client_first_name
@@ -273,11 +278,18 @@ export default function AppointmentsList() {
                     <td><strong>{dateStr}</strong></td>
                     <td>{a.note || '—'}</td>
                     <td>
-                      {a.is_completed ? (
-                        <span className="badge-status badge-status--completed">Завершена</span>
-                      ) : (
-                        <span className="badge-status badge-status--pending">Ожидает</span>
-                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {a.is_paid && (
+                          <span className="badge-status badge-status--completed" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}>
+                            Оплачена
+                          </span>
+                        )}
+                        {a.is_completed ? (
+                          <span className="badge-status badge-status--completed">Завершена</span>
+                        ) : (
+                          <span className="badge-status badge-status--pending">Ожидает</span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <button
@@ -287,19 +299,28 @@ export default function AppointmentsList() {
                       >
                         Редактировать
                       </button>
-                      <button
-                        type="button"
-                        className="btn-action-delete"
-                        onClick={() => handleDelete(a.id_appointment)}
-                      >
-                        Удалить
-                      </button>
+                      {!a.is_paid && (
+                        <button
+                          type="button"
+                          className="btn-action-delete"
+                          onClick={() => handleDelete(a.id_appointment)}
+                        >
+                          Удалить
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={appointments.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
         </div>
       )}
     </div>

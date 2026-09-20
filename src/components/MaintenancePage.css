@@ -1,0 +1,72 @@
+.simple-maintenance-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-color: var(--bg, #f9fafb);
+  color: var(--text, #333333);
+  font-family: inherit;
+}
+
+.simple-maintenance-card {
+  max-width: 440px;
+  width: 100%;
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.simple-maintenance-icon {
+  font-size: 44px;
+  margin-bottom: 16px;
+  line-height: 1;
+}
+
+.simple-maintenance-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-h, #111827);
+  margin-bottom: 10px;
+}
+
+.simple-maintenance-text {
+  font-size: 0.95rem;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.simple-maintenance-cart-hint {
+  font-size: 0.88rem;
+  color: var(--success, #15803d);
+  background: var(--success-bg, #dcfce7);
+  padding: 6px 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  display: inline-block;
+}
+
+.simple-maintenance-btn {
+  background: var(--accent, #d11a2a);
+  color: #ffffff;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.simple-maintenance-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.simple-maintenance-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -71,12 +71,6 @@ function AdminPanel() {
         <NavLink to="/discounts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
           Скидки и акции
         </NavLink>
-        <NavLink to="/carts" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-          Корзины клиентов
-        </NavLink>
-        <NavLink to="/carts-items" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
-          Позиции корзин
-        </NavLink>
 
         {isMainAdmin && (
           <NavLink to="/roles" className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>

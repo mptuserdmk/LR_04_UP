@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { getReviews, createReview, updateReview, deleteReview } from '../api/reviews';
 import { getServices } from '../api/services';
 import { useAuth } from '../context/AuthContext';
+import Pagination from './Pagination';
 
 export default function Reviews() {
   const { user } = useAuth();
@@ -14,6 +15,8 @@ export default function Reviews() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState(null);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 6;
 
   // Form state
   const [rating, setRating] = useState(5);
@@ -59,7 +62,7 @@ export default function Reviews() {
   }, [cooldownRemaining]);
 
   const userExistingReview = useMemo(() => {
-    if (!user || !user.id_user) return null;
+    if (!user) return null;
     return reviews.find((r) => String(r.user_id) === String(user.id_user));
   }, [user, reviews]);
 
@@ -68,6 +71,7 @@ export default function Reviews() {
     setRating(rev.rating);
     setComment(rev.comment);
     setSelectedServiceId(rev.service_id ? String(rev.service_id) : '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCancelEdit = () => {
@@ -80,11 +84,12 @@ export default function Reviews() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!user) {
-      setError('Для публикации необходимо авторизоваться');
+      setError('Для отправки отзыва необходимо войти в аккаунт');
       return;
     }
+
     if (!comment.trim()) {
-      setError('Пожалуйста, напишите текст отзыва');
+      setError('Напишите текст отзыва');
       return;
     }
 
@@ -94,48 +99,48 @@ export default function Reviews() {
 
     try {
       if (editingReviewId) {
-        await updateReview(editingReviewId, {
+        const updated = await updateReview(editingReviewId, {
           rating,
           comment: comment.trim(),
-          service_id: selectedServiceId ? parseInt(selectedServiceId, 10) : null,
+          service_id: selectedServiceId ? Number(selectedServiceId) : null,
         });
-        setMessage('Отзыв успешно обновлен');
+        setReviews((prev) => prev.map((r) => (r.id_review === updated.id_review ? { ...r, ...updated } : r)));
+        setMessage('Отзыв успешно обновлен!');
         handleCancelEdit();
       } else {
-        await createReview({
+        const created = await createReview({
           user_id: user.id_user,
-          service_id: selectedServiceId ? parseInt(selectedServiceId, 10) : null,
+          author_name: `${user.first_name || ''} ${user.second_name || ''}`.trim() || user.email,
+          service_id: selectedServiceId ? Number(selectedServiceId) : null,
           rating,
           comment: comment.trim(),
         });
-        setMessage('Спасибо за ваш отзыв!');
+        setReviews((prev) => [created, ...prev]);
+        setMessage('Спасибо! Ваш отзыв успешно опубликован.');
         setComment('');
+        setRating(5);
         setSelectedServiceId('');
-        setCooldownRemaining(180);
+        setCooldownRemaining(30);
       }
-      await loadAll();
+      setTimeout(() => setMessage(null), 4000);
     } catch (err) {
-      if (err.message && err.message.includes('Подождите')) {
-        const match = err.message.match(/(\d+)\s*сек/);
-        const secs = match ? parseInt(match[1], 10) : 180;
-        setCooldownRemaining(secs);
-        setError(`Антиспам-защита: повторный отзыв возможен через ${secs} сек.`);
-      } else {
-        setError(err.message || 'Ошибка сохранения отзыва');
-      }
+      setError(err.message || 'Ошибка при сохранении отзыва');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Удалить данный отзыв?')) return;
+    if (!window.confirm('Вы действительно хотите удалить этот отзыв?')) return;
     try {
+      setError(null);
       await deleteReview(id);
-      await loadAll();
+      setReviews((prev) => prev.filter((r) => r.id_review !== id));
+      setMessage('Отзыв удален');
       if (editingReviewId === id) handleCancelEdit();
+      setTimeout(() => setMessage(null), 3000);
     } catch (err) {
-      alert('Ошибка при удалении: ' + err.message);
+      setError(err.message || 'Ошибка при удалении отзыва');
     }
   };
 
@@ -160,7 +165,7 @@ export default function Reviews() {
 
   if (loading) {
     return (
-      <div className="page-container" style={{ textAlign: 'center', paddingTop: '4rem' }}>
+      <div className="page-container" style={{ textAlign: 'center', paddingTop: '40px' }}>
         <p style={{ color: 'var(--text-muted)' }}>Загрузка отзывов...</p>
       </div>
     );
@@ -173,17 +178,17 @@ export default function Reviews() {
           <h1 className="page-title">Отзывы клиентов</h1>
           <p className="page-subtitle">Мнения гостей о визитах и качестве обслуживания</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-main)' }}>★ {avgRating}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>({filteredReviews.length} из {reviews.length})</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '18px', fontWeight: '700', color: 'var(--accent)' }}>★ {avgRating}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>({filteredReviews.length} из {reviews.length})</span>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px' }}>
         {/* Reviews List */}
         <div>
           {/* Filters Bar: Rating & Service */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
             <div className="admin-nav-bar" style={{ margin: 0, flexWrap: 'wrap' }}>
               {['all', '5', '4', '3', '2', '1'].map((val) => (
                 <button
@@ -201,7 +206,7 @@ export default function Reviews() {
               <select
                 value={filterServiceId}
                 onChange={(e) => setFilterServiceId(e.target.value)}
-                style={{ padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}
+                style={{ padding: '6px 10px', fontSize: '13px' }}
               >
                 <option value="all">Все услуги и салон ({reviews.length})</option>
                 <option value="general">Общие отзывы о салоне</option>
@@ -218,42 +223,43 @@ export default function Reviews() {
           </div>
 
           {filteredReviews.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
+            <div style={{ textAlign: 'center', padding: '30px 16px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px' }}>
               <p style={{ color: 'var(--text-muted)' }}>В этой категории отзывов пока нет</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {filteredReviews.map((rev) => {
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filteredReviews
+                .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+                .map((rev) => {
                 const isAuthor = user && String(user.id_user) === String(rev.user_id);
                 const isAdmin = user && (user.role_id === 1 || user.role_title === 'Главный администратор');
 
                 return (
                   <div
                     key={rev.id_review}
-                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.25rem' }}
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                       <div>
-                        <strong style={{ color: 'var(--text-main)', fontSize: '0.9rem' }}>
+                        <strong style={{ color: 'var(--text-h)', fontSize: '14px' }}>
                           {rev.first_name ? `${rev.first_name} ${rev.second_name || ''}` : rev.author_name || 'Гость'}
                         </strong>
-                        <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '0.15rem' }}>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
                           {rev.created_at ? new Date(rev.created_at).toLocaleDateString('ru-RU') : 'Недавно'}
                           {rev.service_title && ` • ${rev.service_title}`}
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ color: 'var(--accent-silver)', fontWeight: '700', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: '#f59e0b', fontWeight: '700', fontSize: '14px' }}>
                           {'★'.repeat(rev.rating)}{'☆'.repeat(5 - rev.rating)}
                         </span>
                         {(isAuthor || isAdmin) && (
-                          <div style={{ display: 'flex', gap: '0.3rem', marginLeft: '0.5rem' }}>
+                          <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
                             {isAuthor && (
                               <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                                className="btn-action-edit"
                                 onClick={() => handleStartEdit(rev)}
                               >
                                 Изменить
@@ -261,8 +267,7 @@ export default function Reviews() {
                             )}
                             <button
                               type="button"
-                              className="btn btn-danger btn-sm"
-                              style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
+                              className="btn-action-delete"
                               onClick={() => handleDelete(rev.id_review)}
                             >
                               Удалить
@@ -272,29 +277,39 @@ export default function Reviews() {
                       </div>
                     </div>
 
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                    <p style={{ color: 'var(--text)', fontSize: '13px', lineHeight: '1.4' }}>
                       {rev.comment}
                     </p>
                   </div>
                 );
               })}
+
+              <Pagination
+                currentPage={currentPage}
+                totalItems={filteredReviews.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={(page) => {
+                  setCurrentPage(page);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
             </div>
           )}
         </div>
 
         {/* Form Container */}
         <div>
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-h)', marginBottom: '14px', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
               {editingReviewId ? 'Редактирование отзыва' : 'Оставить отзыв'}
             </h3>
 
-            {error && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '0.75rem', padding: '0.4rem' }}>{error}</div>}
-            {message && <div className="badge badge-success" style={{ display: 'block', marginBottom: '0.75rem', padding: '0.4rem' }}>{message}</div>}
+            {error && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '10px', padding: '6px' }}>{error}</div>}
+            {message && <div className="badge badge-success" style={{ display: 'block', marginBottom: '10px', padding: '6px' }}>{message}</div>}
 
             {userExistingReview && !editingReviewId && (
-              <div style={{ background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', padding: '0.75rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.8rem' }}>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Вы уже оставили отзыв к услугам салона.</p>
+              <div style={{ background: '#f9fafb', border: '1px solid var(--border)', padding: '10px', borderRadius: '4px', marginBottom: '12px', fontSize: '12px' }}>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '6px' }}>Вы уже оставили отзыв к услугам салона.</p>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -306,7 +321,7 @@ export default function Reviews() {
             )}
 
             {cooldownRemaining > 0 && !editingReviewId && (
-              <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '0.75rem', borderRadius: '4px', marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--accent-warning)' }}>
+              <div style={{ background: 'var(--warning-bg)', border: '1px solid #fde68a', padding: '10px', borderRadius: '4px', marginBottom: '12px', fontSize: '12px', color: 'var(--warning)' }}>
                 Повторная публикация доступна через: <strong>{cooldownRemaining} сек.</strong>
               </div>
             )}
@@ -314,19 +329,19 @@ export default function Reviews() {
             <form onSubmit={handleSubmit}>
               <div className="form-group">
                 <label className="form-label">Оценка</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
                       type="button"
                       style={{
-                        background: rating >= star ? 'var(--accent-silver)' : 'var(--bg-input)',
-                        color: rating >= star ? '#0c0e12' : 'var(--text-muted)',
-                        border: '1px solid var(--border-subtle)',
+                        background: rating >= star ? 'var(--accent)' : '#fff',
+                        color: rating >= star ? '#fff' : 'var(--text-muted)',
+                        border: '1px solid var(--border-strong)',
                         borderRadius: '4px',
-                        padding: '0.35rem 0.6rem',
+                        padding: '6px 10px',
                         cursor: 'pointer',
-                        fontSize: '0.85rem',
+                        fontSize: '13px',
                         fontWeight: '600',
                       }}
                       onClick={() => setRating(star)}
@@ -363,7 +378,7 @@ export default function Reviews() {
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                 <button
                   type="submit"
                   className="btn btn-primary"

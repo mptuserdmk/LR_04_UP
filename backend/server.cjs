@@ -2,11 +2,66 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const path = require('path');
+const nodemailer = require('nodemailer');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Setup mail transporter
+let mailTransporter = null;
+async function getMailTransporter() {
+  if (mailTransporter) return mailTransporter;
+  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+    mailTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  } else {
+    try {
+      const testAccount = await nodemailer.createTestAccount();
+      mailTransporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+      console.log('Using Ethereal Mailer for password reset. Test account:', testAccount.user);
+    } catch (e) {
+      console.warn('Fallback to jsonTransport for mailer:', e.message);
+      mailTransporter = nodemailer.createTransport({
+        jsonTransport: true,
+      });
+    }
+  }
+  return mailTransporter;
+}
+
+// Helper to check if appointment is paid or completed
+async function isAppointmentPaidOrCompleted(appointmentId) {
+  if (!appointmentId) return false;
+  try {
+    const payRes = await pool.query(
+      `SELECT 1 FROM payments WHERE appointment_id = $1
+       UNION
+       SELECT 1 FROM appointments WHERE id_appointment = $1 AND is_completed = true`,
+      [appointmentId]
+    );
+    return payRes.rowCount > 0;
+  } catch (err) {
+    console.error('Error checking payment status:', err);
+    return false;
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -252,10 +307,36 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at
     `, [email.trim().toLowerCase(), code, expiresAt]);
 
+    try {
+      const transporter = await getMailTransporter();
+      const mailOptions = {
+        from: process.env.SMTP_FROM || '"Салон красоты и услуг" <noreply@salon.local>',
+        to: email.trim(),
+        subject: 'Код для восстановления пароля',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff;">
+            <h2 style="color: #4f46e5; margin-top: 0;">Сброс пароля</h2>
+            <p style="color: #374151; font-size: 15px; line-height: 1.5;">Здравствуйте! Вы запросили код для сброса пароля в личном кабинете.</p>
+            <div style="background-color: #f3f4f6; border-radius: 6px; padding: 16px; text-align: center; margin: 20px 0;">
+              <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #111827;">${code}</span>
+            </div>
+            <p style="color: #6b7280; font-size: 13px; line-height: 1.4; margin-bottom: 0;">Код действителен в течение 15 минут. Если вы не отправляли запрос, проигнорируйте это сообщение.</p>
+          </div>
+        `,
+        text: `Ваш код для восстановления пароля: ${code}. Код действителен 15 минут.`
+      };
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`Password reset email sent to ${email.trim()}:`, info.messageId);
+      if (nodemailer.getTestMessageUrl && info) {
+        console.log(`Ethereal Email Preview URL:`, nodemailer.getTestMessageUrl(info));
+      }
+    } catch (mailErr) {
+      console.error('Error sending reset email:', mailErr);
+    }
+
     res.json({
       success: true,
-      message: 'Код подтверждения успешно сгенерирован',
-      code,
+      message: 'Код подтверждения отправлен на вашу почту',
       email: email.trim()
     });
   } catch (err) {
@@ -656,7 +737,8 @@ app.get('/api/appointments', async (req, res) => {
     const result = await pool.query(`
       SELECT a.*,
              u.first_name as client_first_name, u.second_name as client_second_name, u.email as client_email,
-             m.first_name as master_first_name, m.second_name as master_second_name, m.email as master_email
+             m.first_name as master_first_name, m.second_name as master_second_name, m.email as master_email,
+             COALESCE((SELECT COUNT(*) > 0 FROM payments p WHERE p.appointment_id = a.id_appointment), false) as is_paid
       FROM appointments a
       LEFT JOIN users u ON a.user_id = u.id_user
       LEFT JOIN users m ON a.master_id = m.id_user
@@ -673,7 +755,8 @@ app.get('/api/appointments/user/:userId', async (req, res) => {
   try {
     const appointmentsResult = await pool.query(`
       SELECT a.*,
-             m.first_name as master_first_name, m.second_name as master_second_name, m.email as master_email
+             m.first_name as master_first_name, m.second_name as master_second_name, m.email as master_email,
+             COALESCE((SELECT COUNT(*) > 0 FROM payments p WHERE p.appointment_id = a.id_appointment), false) as is_paid
       FROM appointments a
       LEFT JOIN users m ON a.master_id = m.id_user
       WHERE a.user_id = $1
@@ -706,7 +789,8 @@ app.get('/api/appointments/:id', async (req, res) => {
     const result = await pool.query(`
       SELECT a.*,
              u.first_name as client_first_name, u.second_name as client_second_name, u.email as client_email,
-             m.first_name as master_first_name, m.second_name as master_second_name
+             m.first_name as master_first_name, m.second_name as master_second_name,
+             COALESCE((SELECT COUNT(*) > 0 FROM payments p WHERE p.appointment_id = a.id_appointment), false) as is_paid
       FROM appointments a
       LEFT JOIN users u ON a.user_id = u.id_user
       LEFT JOIN users m ON a.master_id = m.id_user
@@ -738,6 +822,19 @@ app.post('/api/appointments', async (req, res) => {
 app.put('/api/appointments/:id', async (req, res) => {
   const { user_id, master_id, appointment_date, note, address, is_completed } = req.body;
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(req.params.id);
+    // If it is paid, check if changing client/master/date (which should be blocked)
+    if (isPaid && !is_completed) {
+      const currentApp = await pool.query('SELECT * FROM appointments WHERE id_appointment = $1', [req.params.id]);
+      if (currentApp.rowCount > 0) {
+        const c = currentApp.rows[0];
+        // Allow updating completion status or note only, but reject altering paid user or master
+        if (user_id && String(c.user_id) !== String(user_id)) {
+          return res.status(403).json({ error: 'Запись уже оплачена. Изменение клиента невозможно.' });
+        }
+      }
+    }
+
     const result = await pool.query(
       `UPDATE appointments
        SET user_id = $1, master_id = $2, appointment_date = $3, note = $4, address = $5, is_completed = $6
@@ -754,6 +851,10 @@ app.put('/api/appointments/:id', async (req, res) => {
 
 app.delete('/api/appointments/:id', async (req, res) => {
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(req.params.id);
+    if (isPaid) {
+      return res.status(403).json({ error: 'Оплаченная запись не может быть удалена. Она сохраняется для финансовой отчетности.' });
+    }
     await pool.query('DELETE FROM appointments_services WHERE appointment_id = $1', [req.params.id]);
     await pool.query('DELETE FROM payments WHERE appointment_id = $1', [req.params.id]);
     const result = await pool.query('DELETE FROM appointments WHERE id_appointment = $1', [req.params.id]);
@@ -772,7 +873,8 @@ app.get('/api/appointments_services', async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT aps.*, s.title as service_title, s.price, s.duration,
-             a.appointment_date, u.first_name as client_first_name, u.second_name as client_second_name
+             a.appointment_date, a.is_completed, u.first_name as client_first_name, u.second_name as client_second_name,
+             COALESCE((SELECT COUNT(*) > 0 FROM payments p WHERE p.appointment_id = aps.appointment_id), false) as is_paid
       FROM appointments_services aps
       LEFT JOIN services s ON aps.service_id = s.id_service
       LEFT JOIN appointments a ON aps.appointment_id = a.id_appointment
@@ -789,6 +891,11 @@ app.get('/api/appointments_services', async (req, res) => {
 app.post('/api/appointments_services', async (req, res) => {
   const { appointment_id, service_id, quantity } = req.body;
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(appointment_id);
+    if (isPaid) {
+      return res.status(403).json({ error: 'Заказ уже оплачен или завершен. Изменение состава услуг заблокировано.' });
+    }
+
     const result = await pool.query(
       `INSERT INTO appointments_services (appointment_id, service_id, quantity)
        VALUES ($1, $2, $3)
@@ -807,6 +914,11 @@ app.post('/api/appointments_services', async (req, res) => {
 app.put('/api/appointments_services/:appointmentId/:serviceId', async (req, res) => {
   const { quantity } = req.body;
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(req.params.appointmentId);
+    if (isPaid) {
+      return res.status(403).json({ error: 'Заказ уже оплачен или завершен. Изменение количества заблокировано.' });
+    }
+
     const result = await pool.query(
       `UPDATE appointments_services
        SET quantity = $1
@@ -823,6 +935,11 @@ app.put('/api/appointments_services/:appointmentId/:serviceId', async (req, res)
 
 app.delete('/api/appointments_services/:appointmentId/:serviceId', async (req, res) => {
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(req.params.appointmentId);
+    if (isPaid) {
+      return res.status(403).json({ error: 'Заказ уже оплачен или завершен. Удаление услуг заблокировано.' });
+    }
+
     const result = await pool.query(
       'DELETE FROM appointments_services WHERE appointment_id = $1 AND service_id = $2',
       [req.params.appointmentId, req.params.serviceId]
@@ -837,6 +954,11 @@ app.delete('/api/appointments_services/:appointmentId/:serviceId', async (req, r
 
 app.delete('/api/appointments_services/:id', async (req, res) => {
   try {
+    const isPaid = await isAppointmentPaidOrCompleted(req.params.id);
+    if (isPaid) {
+      return res.status(403).json({ error: 'Заказ уже оплачен или завершен. Удаление услуг заблокировано.' });
+    }
+
     const result = await pool.query(
       'DELETE FROM appointments_services WHERE appointment_id = $1',
       [req.params.id]
@@ -890,6 +1012,13 @@ app.get('/api/carts/user/:userId', async (req, res) => {
       );
       cart = newCartResult.rows[0];
     }
+
+    // Auto-clean any items for services that were deleted or don't exist anymore
+    await pool.query(
+      `DELETE FROM carts_items
+       WHERE cart_id = $1 AND service_id NOT IN (SELECT id_service FROM services)`,
+      [cart.id_cart]
+    );
 
     const itemsResult = await pool.query(
       `SELECT

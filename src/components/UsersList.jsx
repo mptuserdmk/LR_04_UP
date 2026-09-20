@@ -4,6 +4,7 @@ import { getDiscounts } from '../api/discounts';
 import { getRoles } from '../api/roles';
 import { useAuth } from '../context/AuthContext';
 import AdminNavTabs from './AdminNavTabs';
+import Pagination from './Pagination';
 
 export default function UsersList() {
   const { user: currentUser } = useAuth();
@@ -12,6 +13,8 @@ export default function UsersList() {
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [formData, setFormData] = useState({
     id_user: '',
@@ -271,14 +274,16 @@ export default function UsersList() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u, index) => {
+              {users
+                .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+                .map((u, index) => {
                 const roleObj = roles.find((r) => String(r.id_role) === String(u.role_id));
                 const discountObj = discounts.find((d) => String(d.id_discount) === String(u.discount_id));
                 const isMainAdmin = u.role_id === 1;
 
                 return (
                   <tr key={u.id_user}>
-                    <td className="row-number-cell">{index + 1}</td>
+                    <td className="row-number-cell">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
                     <td>
                       <strong>{u.second_name} {u.first_name}</strong> {u.middle_name || ''}
                     </td>
@@ -321,6 +326,13 @@ export default function UsersList() {
               })}
             </tbody>
           </table>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={users.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
         </div>
       )}
     </div>

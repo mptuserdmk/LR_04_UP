@@ -118,9 +118,9 @@ export default function Profile() {
 
   if (!user) {
     return (
-      <div className="page-container" style={{ textAlign: 'center', paddingTop: '4rem' }}>
+      <div className="page-container" style={{ textAlign: 'center', paddingTop: '40px' }}>
         <p style={{ color: 'var(--text-muted)' }}>Необходима авторизация для доступа к личному кабинету</p>
-        <Link to="/login" className="btn btn-primary" style={{ marginTop: '1rem' }}>
+        <Link to="/login" className="btn btn-primary" style={{ marginTop: '16px' }}>
           Войти
         </Link>
       </div>
@@ -144,7 +144,7 @@ export default function Profile() {
       </div>
 
       {/* Tabs */}
-      <div className="admin-nav-bar" style={{ marginBottom: '2rem' }}>
+      <div className="admin-nav-bar" style={{ marginBottom: '20px' }}>
         <button
           type="button"
           className={`admin-nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
@@ -174,16 +174,16 @@ export default function Profile() {
           {loadingOrders ? (
             <p style={{ color: 'var(--text-muted)' }}>Загрузка истории заказов...</p>
           ) : ordersError ? (
-            <div className="badge badge-danger" style={{ display: 'block', padding: '0.5rem' }}>{ordersError}</div>
+            <div className="badge badge-danger" style={{ display: 'block', padding: '8px' }}>{ordersError}</div>
           ) : orders.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px' }}>
-              <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>У вас пока нет оформленных заказов или записей</p>
+            <div style={{ textAlign: 'center', padding: '40px 16px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>У вас пока нет оформленных заказов или записей</p>
               <Link to="/available-services" className="btn btn-primary btn-sm">
                 Выбрать услуги в каталоге
               </Link>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {orders.map((order, idx) => {
                 const dateFormatted = order.appointment_date
                   ? new Date(order.appointment_date).toLocaleString('ru-RU', {
@@ -198,14 +198,14 @@ export default function Profile() {
                 return (
                   <div
                     key={order.id_appointment}
-                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.25rem' }}
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '16px' }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px', marginBottom: '12px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
                       <div>
-                        <strong style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
+                        <strong style={{ fontSize: '15px', color: 'var(--text-h)' }}>
                           Заказ #{idx + 1}
                         </strong>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginLeft: '0.75rem' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '13px', marginLeft: '12px' }}>
                           {dateFormatted}
                         </span>
                       </div>
@@ -214,7 +214,7 @@ export default function Profile() {
                       </span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', fontSize: '13px', marginBottom: '12px' }}>
                       <div>
                         <span style={{ color: 'var(--text-muted)' }}>Мастер: </span>
                         <strong>{order.master_first_name ? `${order.master_first_name} ${order.master_second_name || ''}` : 'Мастер салона'}</strong>
@@ -233,19 +233,19 @@ export default function Profile() {
 
                     {/* Ordered Services List */}
                     {order.services && order.services.length > 0 && (
-                      <div style={{ background: 'var(--bg-surface-elevated)', borderRadius: '4px', padding: '0.75rem', marginTop: '0.5rem' }}>
-                        <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                      <div style={{ background: 'var(--bg-subtle)', borderRadius: '4px', padding: '12px', marginTop: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 600 }}>
                           Состав заказа:
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           {order.services.map((s, sIdx) => (
-                            <div key={sIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                            <div key={sIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                               <span>{s.title} {s.quantity > 1 && `(x${s.quantity})`}</span>
                               <strong>{(parseFloat(s.price) * (s.quantity || 1)).toLocaleString()} ₽</strong>
                             </div>
                           ))}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.5rem', marginTop: '0.5rem', fontWeight: '700', fontSize: '0.9rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px', fontWeight: '700', fontSize: '14px', color: 'var(--text-h)' }}>
                           <span>Итого к оплате:</span>
                           <span>{(order.totalPrice || 0).toLocaleString()} ₽</span>
                         </div>
@@ -261,16 +261,16 @@ export default function Profile() {
 
       {/* TAB 2: PERSONAL INFO */}
       {activeTab === 'info' && (
-        <div style={{ maxWidth: '600px', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+        <div style={{ maxWidth: '600px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '20px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-h)', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
             Редактирование профиля
           </h3>
 
-          {profileError && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '1rem', padding: '0.4rem' }}>{profileError}</div>}
-          {profileMsg && <div className="badge badge-success" style={{ display: 'block', marginBottom: '1rem', padding: '0.4rem' }}>{profileMsg}</div>}
+          {profileError && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '12px', padding: '8px' }}>{profileError}</div>}
+          {profileMsg && <div className="badge badge-success" style={{ display: 'block', marginBottom: '12px', padding: '8px' }}>{profileMsg}</div>}
 
           <form onSubmit={handleProfileSubmit}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div className="form-group">
                 <label className="form-label">Фамилия *</label>
                 <input
@@ -334,7 +334,7 @@ export default function Profile() {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ marginTop: '0.5rem' }}
+              style={{ marginTop: '8px' }}
               disabled={savingProfile}
             >
               {savingProfile ? 'Сохранение...' : 'Сохранить изменения'}
@@ -345,13 +345,13 @@ export default function Profile() {
 
       {/* TAB 3: SECURITY */}
       {activeTab === 'security' && (
-        <div style={{ maxWidth: '500px', background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+        <div style={{ maxWidth: '500px', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: '6px', padding: '20px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-h)', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
             Изменение пароля
           </h3>
 
-          {passwordError && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '1rem', padding: '0.4rem' }}>{passwordError}</div>}
-          {passwordMsg && <div className="badge badge-success" style={{ display: 'block', marginBottom: '1rem', padding: '0.4rem' }}>{passwordMsg}</div>}
+          {passwordError && <div className="badge badge-danger" style={{ display: 'block', marginBottom: '12px', padding: '8px' }}>{passwordError}</div>}
+          {passwordMsg && <div className="badge badge-success" style={{ display: 'block', marginBottom: '12px', padding: '8px' }}>{passwordMsg}</div>}
 
           <form onSubmit={handlePasswordSubmit}>
             <div className="form-group">
@@ -390,7 +390,7 @@ export default function Profile() {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ marginTop: '0.5rem' }}
+              style={{ marginTop: '8px' }}
               disabled={savingPassword}
             >
               {savingPassword ? 'Сохранение...' : 'Обновить пароль'}

@@ -33,12 +33,6 @@ export default function AdminNavTabs() {
       <NavLink to="/services-categories" className={({ isActive }) => (isActive ? 'admin-nav-tab active' : 'admin-nav-tab')}>
         Связи категорий
       </NavLink>
-      <NavLink to="/carts" className={({ isActive }) => (isActive ? 'admin-nav-tab active' : 'admin-nav-tab')}>
-        Корзины
-      </NavLink>
-      <NavLink to="/carts-items" className={({ isActive }) => (isActive ? 'admin-nav-tab active' : 'admin-nav-tab')}>
-        Позиции корзин
-      </NavLink>
       {isMainAdmin && (
         <NavLink to="/roles" className={({ isActive }) => (isActive ? 'admin-nav-tab active' : 'admin-nav-tab')}>
           Роли

@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { getServices, createService, updateService, deleteService } from '../api/services';
 import { getDiscounts } from '../api/discounts';
 import AdminNavTabs from './AdminNavTabs';
+import Pagination from './Pagination';
 
 export default function ServicesList() {
   const [services, setServices] = useState([]);
   const [discounts, setDiscounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [formData, setFormData] = useState({
     id_service: '',
@@ -237,12 +240,14 @@ export default function ServicesList() {
               </tr>
             </thead>
             <tbody>
-              {services.map((s, index) => {
+              {services
+                .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+                .map((s, index) => {
                 const discountObj = discounts.find((d) => String(d.id_discount) === String(s.discount_id));
 
                 return (
                   <tr key={s.id_service}>
-                    <td className="row-number-cell">{index + 1}</td>
+                    <td className="row-number-cell">{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
                     <td>
                       {s.image_url ? (
                         <img
@@ -295,6 +300,13 @@ export default function ServicesList() {
               })}
             </tbody>
           </table>
+
+          <Pagination
+            currentPage={currentPage}
+            totalItems={services.length}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
         </div>
       )}
     </div>

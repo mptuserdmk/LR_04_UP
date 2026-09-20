@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from './context/AuthContext';
+import { useTheme } from './context/ThemeContext';
 import { loginUser, registerUser, forgotPassword, resetPassword } from './api/users';
 import { useNavigate } from 'react-router-dom';
 
@@ -39,6 +40,7 @@ function Login() {
 
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const validateLoginForm = () => {
     const errors = {};
@@ -146,8 +148,7 @@ function Login() {
     setForgotLoading(true);
     try {
       const res = await forgotPassword(forgotEmail.trim());
-      setReceivedCode(res.code);
-      setForgotMsg(`Код подтверждения: ${res.code}`);
+      setForgotMsg('Код подтверждения успешно отправлен на вашу почту');
       setForgotStep(2);
     } catch (err) {
       setForgotError(err.message || 'Ошибка запроса кода');
@@ -192,6 +193,17 @@ function Login() {
 
   return (
     <div className="auth-wrapper">
+      <div className="auth-theme-toggle-container">
+        <button
+          type="button"
+          className="btn-theme-toggle"
+          onClick={toggleTheme}
+          title="Сменить цветовую тему"
+        >
+          {theme === 'dark' ? 'Светлая тема' : 'Темная тема'}
+        </button>
+      </div>
+
       <div className="auth-card" style={{ maxWidth: authMode === 'register' ? '500px' : '420px' }}>
         <div className="auth-header">
           <h2 className="auth-title">
@@ -452,8 +464,8 @@ function Login() {
               </form>
             ) : (
               <form onSubmit={handleResetPassword}>
-                <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  Код подтверждения сформирован для <strong>{forgotEmail}</strong>: <code style={{ color: 'var(--text-main)', background: 'var(--bg-input)', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>{receivedCode}</code>
+                <div style={{ marginBottom: '1rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                  Проверочный код отправлен на почту <strong>{forgotEmail}</strong>. Пожалуйста, проверьте входящие сообщения (и папку «Спам») и укажите код ниже:
                 </div>
 
                 <div className="form-group">
